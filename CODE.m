@@ -65,7 +65,6 @@ function val = get_with_default(prompt, default_val)
     end
 end
 
-
 % Derived Parameters
 delta_human = L/v_human + v_human/(-2 * a_min_human);  % segment travel time
 delta_cav = L/v_cav + v_cav/(-2 * a_min_cav);  % segment travel time
@@ -73,18 +72,24 @@ box_length = lane_width * num_lanes(1) + 2 * offset;  % intersection box length
 box_width = lane_width * num_lanes(2) + 2 * offset;  % intersection box width
 %fprintf('\nIntersection box size: %.2f ft x %.2f ft\n', box_length, box_width);
 
+% --- Modified tau values ---
+mod_tau_S_human = max(tau_S_human, (veh_length + max(box_length, box_width)) / v_human);
+mod_tau_F_human = max(tau_F_human, 1.5 * veh_length / v_human);
+mod_tau_S_cav = max(tau_S_cav, (veh_length + max(box_length, box_width)) / v_cav);
+mod_tau_F_cav = max(tau_F_cav, 1.5*veh_length / v_cav);
+
 % Generate vehicle arrival times with a minimum time gap between consecutive arrivals
 arrival_times_human = generateArrivalTimes(vehicle_counts, lambda_human, 1.5*veh_length/v_human + v_human/(-2 * a_min_human));
 arrival_times_cav   = generateArrivalTimes(vehicle_counts, lambda_cav, 1.5*veh_length/v_cav + v_cav/(-2 * a_min_cav));
 
 % === RUN HUMAN-DRIVEN SIMULATION ===
 fprintf('\n========== HUMAN-DRIVEN SCENARIO ==========\n');
-final_block_human = simulate_traffic(arrival_times_human, vehicle_counts, num_lanes, v_human, a_min_human, delta_human, max(tau_S_human,(veh_length+max(box_length,box_width))/v_human), max(tau_F_human,1.5*veh_length/v_human+ v_human/(-2 * a_min_human)));
+final_block_human = simulate_traffic(arrival_times_human, vehicle_counts, num_lanes, v_human, a_min_human, delta_human, mod_tau_S_human, mod_tau_F_human);
 efficiency_human = compute_efficiency(final_block_human, num_lanes);
 
 % === RUN CAV-DRIVEN SIMULATION ===
 fprintf('\n========== CAV-DRIVEN SCENARIO ==========\n');
-final_block_cav = simulate_traffic(arrival_times_cav, vehicle_counts, num_lanes, v_cav, a_min_cav, delta_cav, max(tau_S_cav,(veh_length+max(box_length,box_width))/v_cav), max(tau_F_cav,1.5*veh_length/v_cav+ v_cav/(-2 * a_min_cav)));
+final_block_cav = simulate_traffic(arrival_times_cav, vehicle_counts, num_lanes, v_cav, a_min_cav, delta_cav, mod_tau_S_cav, mod_tau_F_cav);
 efficiency_cav = compute_efficiency(final_block_cav, num_lanes);
 
 % === DISPLAY COMPARISON ===
@@ -102,8 +107,8 @@ fprintf('\nData saved to final_human.csv and final_cav.csv\n');
 figure('Name', 'Animated Timeline Comparison', 'NumberTitle', 'off', ...
              'Units', 'normalized', 'OuterPosition', [0 0 1 1]);
 
-plotAnimatedTimeline(final_block_human, 'Human-Driven', 1,max(tau_F_human,3*veh_length/v_human),max(tau_S_human,(veh_length+max(box_length,box_width))/v_human),v_human);
-plotAnimatedTimeline(final_block_cav, 'CAV-Driven', 2,max(tau_F_cav,3*veh_length/v_cav),max(tau_S_cav,(veh_length+max(box_length,box_width))/v_cav),v_cav);
+plotAnimatedTimeline(final_block_human, 'Human-Driven', 1,tau_F_human, tau_S_human, mod_tau_F_human, mod_tau_S_human, v_human);
+plotAnimatedTimeline(final_block_cav, 'CAV-Driven', 2,tau_F_cav, tau_S_cav, mod_tau_F_cav, mod_tau_S_cav, v_cav);
 
 pause(5);
 % === Bird's Eye View Comparison ===
@@ -274,74 +279,137 @@ final_block = blocks{1};
 i = 2;
 while i <= blkCount
     curr_block = blocks{i};
-    last_main = final_block(end, :);
-    first_curr = curr_block(1, :);
-
+    last_main = final_block(end, :);  % Last vehicle in the final block
+    
     % Default: no delay
     block_delay = 0;
-
-    % --- Case: Different approach → check switching headway
-    if first_curr(1) ~= last_main(1)
-        required_start = last_main(6) + tau_S;
-        actual_start   = first_curr(6);
-
-        if actual_start < required_start
-            block_delay = required_start - actual_start;
+    
+    % --- Case: Different approach → check switching headway (tau_S) for each vehicle in curr_block ---
+    for j = 1:size(curr_block, 1)
+        first_curr = curr_block(j, :);  % Current vehicle
+        
+        % Check if vehicle is from a different approach (i.e., switching)
+        if first_curr(1) ~= last_main(1)  % Opposite approach
+            required_start = last_main(6) + tau_S;  % Minimum departure time for the current vehicle
+            actual_start = first_curr(6);  % Actual departure time of the current vehicle
+            
+            % If the departure time is too early, calculate the delay needed
+            if actual_start < required_start
+                block_delay = required_start - actual_start;
+                % Adjust the departure time of the vehicle
+                curr_block(j, 6) = curr_block(j, 6) + block_delay;
+            end
         end
-    end
-
-    % Apply delay if needed (for switching headway)
-    if block_delay > 0
-        curr_block(:,5) = curr_block(:,5) + block_delay;
-        curr_block(:,6) = curr_block(:,6) + block_delay;
     end
 
     % --- Enforce car-following constraint with prior vehicles in final_block ---
-    for ln = unique(curr_block(:,2))'
-        approach = first_curr(1);
-        % Get last vehicle in final_block with same approach and same lane
-        last_idx = find(final_block(:,1) == approach & final_block(:,2) == ln, 1, 'last');
+    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
+        approach = curr_block(1, 1);  % Approach of the first vehicle in the block
+        
+        % Get the last vehicle in final_block with the same approach and lane
+        last_idx = find(final_block(:, 1) == approach & final_block(:, 2) == ln, 1, 'last');
         
         if ~isempty(last_idx)
             last_dep = final_block(last_idx, 6);
-
+            
             % Get indices of vehicles in curr_block that are in this lane
-            lane_indices = find(curr_block(:,2) == ln);
+            lane_indices = find(curr_block(:, 2) == ln);
             for k = 1:length(lane_indices)
                 idx = lane_indices(k);
-                if curr_block(idx,5) < last_dep + tau_F
-                    curr_block(idx,5) = last_dep + tau_F;
-                    curr_block(idx,6) = max(curr_block(idx,6), curr_block(idx,5));
+                
+                % Ensure car-following constraint (tau_F) is respected for stop time
+                if curr_block(idx, 5) < last_dep + tau_F  % Stop time violates tau_F
+                    curr_block(idx, 5) = last_dep + tau_F;
+                    curr_block(idx, 6) = max(curr_block(idx, 6), curr_block(idx, 5));  % Ensure departure time is not earlier than stop time
                 end
-                last_dep = curr_block(idx,6);  % update rolling departure
+                last_dep = curr_block(idx, 6);  % Update rolling departure
             end
         end
     end
-
+    
     % --- Enforce car-following *within* the curr_block itself ---
-    for ln = unique(curr_block(:,2))'
-        lane_indices = find(curr_block(:,2) == ln);
+    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
+        lane_indices = find(curr_block(:, 2) == ln);
         for k = 2:length(lane_indices)
             prev_idx = lane_indices(k-1);
             curr_idx = lane_indices(k);
-
-            prev_dep = curr_block(prev_idx,6);
-            if curr_block(curr_idx,5) < prev_dep + tau_F
-                curr_block(curr_idx,5) = prev_dep + tau_F;
-                curr_block(curr_idx,6) = max(curr_block(curr_idx,6), curr_block(curr_idx,5));
+            
+            prev_dep = curr_block(prev_idx, 6);
+            if curr_block(curr_idx, 5) < prev_dep + tau_F  % Check for tau_F violation within the same lane
+                curr_block(curr_idx, 5) = prev_dep + tau_F;  % Adjust stop time
+                curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));  % Ensure departure time
             end
         end
     end
-
-    % Append processed block
+    
+ % --- Block Reshuffling Logic ---
+    % After checking the current block, compare the first vehicle's departure time with the next block.
+    if i < blkCount
+        next_block = blocks{i+1};  % The following block
+        first_curr = curr_block(1, :);  % First vehicle in the current block
+        first_next = next_block(1, :);  % First vehicle in the next block
+        
+        % Get the revised departure times for the first vehicle in both blocks
+        revised_curr_depart = first_curr(6) + block_delay;  % Revised departure time for the first vehicle in curr_block
+        revised_next_depart = first_next(6);  % Departure time for the first vehicle in next_block
+        
+        % Check if reshuffling is needed
+        if revised_curr_depart > revised_next_depart
+            % Swap the blocks if current block should come after the next one
+            temp = blocks{i};
+            blocks{i} = blocks{i+1};
+            blocks{i+1} = temp;
+            
+            % Re-apply the headway checks and delays for the reshuffled blocks
+            curr_block = blocks{i};
+            for j = 1:size(curr_block, 1)
+                first_curr = curr_block(j, :);  % Current vehicle
+                
+                if first_curr(1) ~= last_main(1)  % Opposite approach
+                    required_start = last_main(6) + tau_S;  % Minimum departure time for the current vehicle
+                    actual_start = first_curr(6);  % Actual departure time of the current vehicle
+                    
+                    % If the departure time is too early, calculate the delay needed
+                    if actual_start < required_start
+                        block_delay = required_start - actual_start;
+                        curr_block(j, 6) = curr_block(j, 6) + block_delay;  % Adjust the departure time of the vehicle
+                    end
+                end
+            end
+            
+            % Re-check car-following within the reshuffled current block
+            for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
+                lane_indices = find(curr_block(:, 2) == ln);
+                for k = 2:length(lane_indices)
+                    prev_idx = lane_indices(k-1);
+                    curr_idx = lane_indices(k);
+                    
+                    prev_dep = curr_block(prev_idx, 6);
+                    if curr_block(curr_idx, 5) < prev_dep + tau_F  % Check for tau_F violation within the same lane
+                        curr_block(curr_idx, 5) = prev_dep + tau_F;  % Adjust stop time
+                        curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));  % Ensure departure time
+                    end
+                end
+            end
+            
+            % Update the reshuffled block in the list
+            blocks{i} = curr_block;
+        end
+    end
+    
+    % Append processed block to final_block
     final_block = [final_block; curr_block];
     i = i + 1;
 end
-final_block = sortrows(final_block, 6)
+
+% Sort final_block by departure time to maintain proper sequence
+final_block = sortrows(final_block, 6);
+
 % Display final merged results
 fprintf('\n--- Final Passing Order After Post-Processing ---\n');
 disp(final_block);
 end
+
 function efficiency = compute_efficiency(final_block, num_lanes)
 % --- Calculate Intersection Throughput Efficiency ---
 
@@ -392,7 +460,7 @@ fprintf('\nFinal sequence exported to "%s"\n', filename);
 end
 
 % ---- Animated Timeline After Post-Processing ----
-function plotAnimatedTimeline(final_block, scenario_title, subplot_idx, tau_F, tau_S, v)
+function plotAnimatedTimeline(final_block, scenario_title, subplot_idx, tau_F_original, tau_S_original, tau_F_mod, tau_S_mod, v)
 subplot(1, 2, subplot_idx);
 hold on;
 title(['Timeline - ' scenario_title]);
@@ -478,13 +546,17 @@ end
 
 legend({'Arrival', 'Stop', 'Departure'}, 'Location', 'southeast');
 % Display additional simulation parameters
-stats_text = sprintf('Total Vehicles: %d\n\\tau_F = %.1f s\n\\tau_S = %.1f s\nv = %.1f m/s\nAvg Delay = %.2f s', ...
-                     size(sorted_block,1), tau_F, tau_S, v, average_delay);
-x_stats = x_max - 5; % Position stats text near the right edge
+stats_text = sprintf(['Total Vehicles: %d\n', ...
+                      'Original \\tau_F = %.2f s\n','Modified \\tau_F = %.2f s\n', ...
+                      'Original \\tau_S = %.2f s\n','Modified \\tau_S = %.2f s\n', ...
+                      'v = %.1f ft/s\nAvg Delay = %.2f s'], ...
+                      size(sorted_block,1), tau_F_original, tau_F_mod, ...
+                      tau_S_original, tau_S_mod, v, average_delay);
+x_stats = x_max-5; % Position stats text near the right edge
 y_stats = size(sorted_block,1); 
 text(x_stats, y_stats, stats_text, 'FontSize', 8, ...
      'VerticalAlignment', 'middle', 'BackgroundColor', [1 1 1 0.8], ...
-     'EdgeColor', [0.6 0.6 0.6], 'Margin', 4);
+     'EdgeColor', [0.6 0.6 0.6], 'Margin', 2);
 end
 
 % ==== Video Simulation: Side-by-Side Bird's Eye View Comparison ====
