@@ -272,7 +272,7 @@ for k = 1:blkCount
     disp(blocks{k});
 end
 
-% Start with block 1
+% --- Start with block 1
 final_block = blocks{1};
 
 % --- Merge remaining blocks into final_block ---
@@ -281,65 +281,60 @@ while i <= blkCount
     curr_block = blocks{i};
     last_main = final_block(end, :);  % Last vehicle in the final block
     
-    % Default: no delay
-    block_delay = 0;
+    % Get the first vehicle of the new block
+    first_curr = curr_block(1, :);
     
-    % --- Case: Different approach → check switching headway (tau_S) for each vehicle in curr_block ---
-    for j = 1:size(curr_block, 1)
-        first_curr = curr_block(j, :);  % Current vehicle
+    % --- Check if approach changes ---
+    if first_curr(1) ~= last_main(1)
+        % Switching constraint (tau_S)
+        min_dep_time = last_main(6) + tau_S;
         
-        % Check if vehicle is from a different approach (i.e., switching)
-        if first_curr(1) ~= last_main(1)  % Opposite approach
-            required_start = last_main(6) + tau_S;  % Minimum departure time for the current vehicle
-            actual_start = first_curr(6);  % Actual departure time of the current vehicle
-            
-            % If the departure time is too early, calculate the delay needed
-            if actual_start < required_start
-                block_delay = required_start - actual_start;
-                % Adjust the departure time of the vehicle
-                curr_block(j, 6) = curr_block(j, 6) + block_delay;
-            end
+        if first_curr(5) < min_dep_time
+            % Shift departure times for all vehicles in curr_block by 'shift'
+            curr_block(:,6) = max(curr_block(:,6),min_dep_time);
         end
-    end
-
-    % --- Enforce car-following constraint with prior vehicles in final_block ---
-    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
-        approach = curr_block(1, 1);  % Approach of the first vehicle in the block
         
-        % Get the last vehicle in final_block with the same approach and lane
-        last_idx = find(final_block(:, 1) == approach & final_block(:, 2) == ln, 1, 'last');
+        % After tau_S enforcement, check car-following constraint ONLY for same lane
+               % For each vehicle in curr_block
+        for v_idx = 1:size(curr_block, 1)
+            this_vehicle = curr_block(v_idx, :);
+            curr_lane = this_vehicle(2);
+            curr_app= this_vehicle(1);
+            curr_veh= this_vehicle(3);
         
-        if ~isempty(last_idx)
-            last_dep = final_block(last_idx, 6);
-            
-            % Get indices of vehicles in curr_block that are in this lane
-            lane_indices = find(curr_block(:, 2) == ln);
-            for k = 1:length(lane_indices)
-                idx = lane_indices(k);
-                
-                % Ensure car-following constraint (tau_F) is respected for stop time
-                if curr_block(idx, 5) < last_dep + tau_F  % Stop time violates tau_F
-                    curr_block(idx, 5) = last_dep + tau_F;
-                    curr_block(idx, 6) = max(curr_block(idx, 6), curr_block(idx, 5));  % Ensure departure time is not earlier than stop time
+            % Find last vehicle in final_block on the same lane (same approach)
+            last_same_lane_idx_a = find(final_block(:,1) == curr_app & final_block(:,2) == curr_lane & final_block(:,3) == curr_veh-1, 1, 'last');
+        
+            if ~isempty(last_same_lane_idx_a)
+                last_same_lane_depart_a = final_block(last_same_lane_idx_a, 6);
+        
+                % If current vehicle's stop time violates tau_F w.r.t. previous departure
+                if curr_block(v_idx,5) < last_same_lane_depart_a + tau_F
+                    deltaF = (last_same_lane_depart_a + tau_F) - curr_block(v_idx,5);
+        
+                    % Shift stop and depart times of THIS vehicle and following vehicles
+                    curr_block(v_idx,5) = curr_block(v_idx,5) + deltaF;
+                    curr_block(v_idx,6)=max(curr_block(v_idx,5),curr_block(v_idx,6));
                 end
-                last_dep = curr_block(idx, 6);  % Update rolling departure
             end
-        end
-    end
-    
-    % --- Enforce car-following *within* the curr_block itself ---
-    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
-        lane_indices = find(curr_block(:, 2) == ln);
-        for k = 2:length(lane_indices)
-            prev_idx = lane_indices(k-1);
-            curr_idx = lane_indices(k);
-            
-            prev_dep = curr_block(prev_idx, 6);
-            if curr_block(curr_idx, 5) < prev_dep + tau_F  % Check for tau_F violation within the same lane
-                curr_block(curr_idx, 5) = prev_dep + tau_F;  % Adjust stop time
-                curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));  % Ensure departure time
+                        % Find last vehicle in curr_block on the same lane
+            last_same_lane_idx = find(curr_block(:,2) == curr_lane & curr_block(:,3) == curr_veh-1, 1, 'last');
+        
+            if ~isempty(last_same_lane_idx)
+                last_same_lane_depart = curr_block(last_same_lane_idx, 6);
+        
+                % If current vehicle's stop time violates tau_F w.r.t. previous departure
+                if curr_block(v_idx,5) < last_same_lane_depart + tau_F
+                    deltaF = (last_same_lane_depart + tau_F) - curr_block(v_idx,5);
+        
+                    % Shift stop and depart times of THIS vehicle and following vehicles
+                    curr_block(v_idx,5) = curr_block(v_idx,5) + deltaF;
+                    curr_block(v_idx,6)=max(curr_block(v_idx,5),curr_block(v_idx,6));
+                end
             end
+
         end
+
     end
     
     % Append processed block to final_block
