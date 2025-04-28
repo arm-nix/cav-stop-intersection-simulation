@@ -284,121 +284,73 @@ while i <= blkCount
     % Default: no delay
     block_delay = 0;
     
-    % --- Check for switching headway (tau_S) for each vehicle in curr_block ---
+    % --- Case: Different approach → check switching headway (tau_S) for each vehicle in curr_block ---
     for j = 1:size(curr_block, 1)
         first_curr = curr_block(j, :);  % Current vehicle
         
-        % Only if approaches are different (switching)
-        if first_curr(1) ~= last_main(1)
-            required_start = last_main(6) + tau_S;  % Minimum required depart time
-            actual_start = first_curr(6);
+        % Check if vehicle is from a different approach (i.e., switching)
+        if first_curr(1) ~= last_main(1)  % Opposite approach
+            required_start = last_main(6) + tau_S;  % Minimum departure time for the current vehicle
+            actual_start = first_curr(6);  % Actual departure time of the current vehicle
             
+            % If the departure time is too early, calculate the delay needed
             if actual_start < required_start
                 block_delay = required_start - actual_start;
-                curr_block(j, 6) = curr_block(j, 6) + block_delay;  % Adjust depart time
+                % Adjust the departure time of the vehicle
+                curr_block(j, 6) = curr_block(j, 6) + block_delay;
             end
         end
-        last_main = first_curr;  % Update for next vehicle comparison
     end
-    
-    % --- Enforce car-following constraint (tau_F) with final_block ---
-    for ln = unique(curr_block(:, 2))'  % Iterate through each lane
-        approach = curr_block(1, 1);  % Approach of curr_block
+
+    % --- Enforce car-following constraint with prior vehicles in final_block ---
+    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
+        approach = curr_block(1, 1);  % Approach of the first vehicle in the block
         
-        % Find last vehicle in final_block with same approach and lane
+        % Get the last vehicle in final_block with the same approach and lane
         last_idx = find(final_block(:, 1) == approach & final_block(:, 2) == ln, 1, 'last');
         
         if ~isempty(last_idx)
             last_dep = final_block(last_idx, 6);
             
-            % Get vehicles in curr_block for this lane
+            % Get indices of vehicles in curr_block that are in this lane
             lane_indices = find(curr_block(:, 2) == ln);
             for k = 1:length(lane_indices)
                 idx = lane_indices(k);
                 
-                % Car-following check (tau_F) on stop times
-                if curr_block(idx, 5) < last_dep + tau_F
+                % Ensure car-following constraint (tau_F) is respected for stop time
+                if curr_block(idx, 5) < last_dep + tau_F  % Stop time violates tau_F
                     curr_block(idx, 5) = last_dep + tau_F;
-                    curr_block(idx, 6) = max(curr_block(idx, 6), curr_block(idx, 5));
+                    curr_block(idx, 6) = max(curr_block(idx, 6), curr_block(idx, 5));  % Ensure departure time is not earlier than stop time
                 end
                 last_dep = curr_block(idx, 6);  % Update rolling departure
             end
         end
     end
     
-    % --- Enforce car-following (tau_F) within curr_block itself ---
-    for ln = unique(curr_block(:, 2))'
+    % --- Enforce car-following *within* the curr_block itself ---
+    for ln = unique(curr_block(:, 2))'  % Iterate through each lane in curr_block
         lane_indices = find(curr_block(:, 2) == ln);
         for k = 2:length(lane_indices)
             prev_idx = lane_indices(k-1);
             curr_idx = lane_indices(k);
             
             prev_dep = curr_block(prev_idx, 6);
-            if curr_block(curr_idx, 5) < prev_dep + tau_F
-                curr_block(curr_idx, 5) = prev_dep + tau_F;
-                curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));
+            if curr_block(curr_idx, 5) < prev_dep + tau_F  % Check for tau_F violation within the same lane
+                curr_block(curr_idx, 5) = prev_dep + tau_F;  % Adjust stop time
+                curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));  % Ensure departure time
             end
         end
     end
     
-    % --- Check if reshuffling needed (only if approaches are different) ---
-    if i < blkCount
-        next_block = blocks{i+1};
-        
-        if ~isempty(next_block)
-            first_curr = curr_block(1, :);    % First vehicle of current block
-            first_next = next_block(1, :);     % First vehicle of next block
-            
-            if first_curr(1) ~= first_next(1)  % Only consider reshuffle if approaches are different
-                if first_curr(6) > first_next(6)
-                    % --- Perform reshuffle ---
-                    temp = curr_block;
-                    curr_block = next_block;
-                    blocks{i+1} = temp;
-                    
-                    % After reshuffle, need to recheck switching headway for reshuffled curr_block
-                    last_main = final_block(end, :);  % Update last_main
-                    for j = 1:size(curr_block, 1)
-                        first_curr = curr_block(j, :);
-                        if first_curr(1) ~= last_main(1)
-                            required_start = last_main(6) + tau_S;
-                            actual_start = first_curr(6);
-                            if actual_start < required_start
-                                block_delay = required_start - actual_start;
-                                curr_block(j, 6) = curr_block(j, 6) + block_delay;
-                            end
-                        end
-                        last_main = first_curr;
-                    end
-                    
-                    % Also enforce tau_F again within reshuffled curr_block
-                    for ln = unique(curr_block(:, 2))'
-                        lane_indices = find(curr_block(:, 2) == ln);
-                        for k = 2:length(lane_indices)
-                            prev_idx = lane_indices(k-1);
-                            curr_idx = lane_indices(k);
-                            
-                            prev_dep = curr_block(prev_idx, 6);
-                            if curr_block(curr_idx, 5) < prev_dep + tau_F
-                                curr_block(curr_idx, 5) = prev_dep + tau_F;
-                                curr_block(curr_idx, 6) = max(curr_block(curr_idx, 6), curr_block(curr_idx, 5));
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    % --- Append processed curr_block to final_block ---
+    % Append processed block to final_block
     final_block = [final_block; curr_block];
     i = i + 1;
 end
 
-% --- Final sorting based on departure time ---
+% Sort final_block by departure time to maintain proper sequence
 final_block = sortrows(final_block, 6);
 
-% --- Display final merged results ---
+% Display final merged results
 fprintf('\n--- Final Passing Order After Post-Processing ---\n');
 disp(final_block);
 end
