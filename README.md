@@ -1,7 +1,7 @@
 # cav-stop-intersection-simulation
 MATLAB simulation for vehicle arrival, scheduling, and headway constraint enforcement at intersections. Models randomized arrivals, lane assignment, and groups vehicles into switching and car-following blocks for realistic traffic flow.
 This project simulates vehicle arrivals and scheduling at a stop-controlled intersection, enforcing headway constraints to model realistic traffic flow.
-Run CODE.m for a single illustrative example comparing one HDV vs CAV scenario. Run trial_submission.m to generate scatter plot data for randomised multiple comparison scenarios for a given set of HDV and CAV parameters.
+Run CODE.m for a single illustrative example comparing one HDV vs CAV scenario. Run trial_submission.m (based on CODE.m's core logic but with modified outputs) to generate scatter plot data for randomised multiple comparison scenarios for a given set of HDV and CAV parameters.
 Dependencies: MATLAB R2021a or later
 Open MATLAB and set the working directory to the repository folder and run the codes.
 The main outputs are: 
