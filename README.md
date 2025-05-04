@@ -32,7 +32,7 @@ The main outputs are:
     * Vehicles (colored rectangles) move according to the calculated schedule.
     * Helps visualize traffic flow and the spatial interactions between vehicles.
 
-2) For trial_submission.m (built on same core CODE.m simulation logic with modified outputs but run over multiple randomized trials):
+2) For trial_submission.m (based on CODE.m's core logic but with modified outputs, runs multiple randomized trials):
     * * **Console Output:**
     * Prints the status of each trial as it runs, showing the trial number, the randomly generated conflict points (`lanes A * lanes B`), and the calculated percentage efficiency gain for that trial.
 
