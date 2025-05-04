@@ -5,7 +5,7 @@ Run CODE.m for a single illustrative example comparing one HDV vs CAV scenario. 
 Dependencies: MATLAB R2021a or later
 Open MATLAB and set the working directory to the repository folder and run the codes.
 The main outputs are: 
-For CODE.m:
+1) For CODE.m:
 * **Console Output:**
     * Displays the calculated **Throughput Efficiency Metrics** for both the Human-Driven Vehicle (HDV) and Connected Automated Vehicle (CAV) scenarios. This includes:
         * `Total vehicles processed`: The number of vehicles simulated.
@@ -32,7 +32,7 @@ For CODE.m:
     * Vehicles (colored rectangles) move according to the calculated schedule.
     * Helps visualize traffic flow and the spatial interactions between vehicles.
 
- For trial_submission.m (built on same core CODE.m simulation logic with modified outputs but run over multiple randomized trials):
+2) For trial_submission.m (built on same core CODE.m simulation logic with modified outputs but run over multiple randomized trials):
     * * **Console Output:**
     * Prints the status of each trial as it runs, showing the trial number, the randomly generated conflict points (`lanes A * lanes B`), and the calculated percentage efficiency gain for that trial.
 
