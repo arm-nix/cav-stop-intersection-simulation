@@ -30,7 +30,7 @@ For CODE.m:
 * **Plot Figure 2 / Video File (`BirdsEyeViewComparison.mp4`):**
     * Shows a top-down animated view of the intersection for both scenarios simultaneously.
     * Vehicles (colored rectangles) move according to the calculated schedule.
-    * Helps visualize traffic flow, queuing at the stop lines, and the spatial interactions between vehicles.
+    * Helps visualize traffic flow and the spatial interactions between vehicles.
 
  For trial_submission.m:
     * * **Console Output:**
